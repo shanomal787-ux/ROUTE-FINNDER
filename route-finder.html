@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Route Finder – Network path planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E8EDF1; --map:#F7FAFC; --panel:#FFFFFF; --ink:#101D2C; --muted:#586A7C;
+  --line:#D3DCE4; --line-strong:#9DAFC0; --route:#D9106F; --on-route:#FFFFFF;
+  --alt:#0C8484; --fail:#D6342B; --fail-tint:#FBE4E2; --focus:#1A5CFF; --src:#1A5CFF; --on-src:#FFFFFF;
+  --sel:#FCEAF3;
+  --font-display:'Bricolage Grotesque','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-body:'Instrument Sans','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0B1420; --map:#0F1B2A; --panel:#132235; --ink:#E7EEF6; --muted:#93A5B8;
+    --line:#223449; --line-strong:#476079; --route:#FF5CA8; --on-route:#1A0612;
+    --alt:#3CC7C7; --fail:#FF6A5E; --fail-tint:#3A1B1D; --focus:#7AA5FF; --src:#7AA5FF; --on-src:#0A1830;
+    --sel:#2A1A2A;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0B1420; --map:#0F1B2A; --panel:#132235; --ink:#E7EEF6; --muted:#93A5B8;
+  --line:#223449; --line-strong:#476079; --route:#FF5CA8; --on-route:#1A0612;
+  --alt:#3CC7C7; --fail:#FF6A5E; --fail-tint:#3A1B1D; --focus:#7AA5FF; --src:#7AA5FF; --on-src:#0A1830;
+  --sel:#2A1A2A;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+*,*::before,*::after{box-sizing:border-box;}
+[hidden]{display:none !important;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+button,select{font:inherit;color:inherit;}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;}
+
+.app{max-width:1320px;margin:0 auto;padding:0 20px 36px;}
+.top{display:flex;align-items:center;gap:16px;padding:24px 0 20px;}
+.logo{flex:none;}
+h1{font-family:var(--font-display);font-weight:800;font-size:clamp(26px,3.6vw,38px);line-height:1.05;letter-spacing:-.02em;margin:0;}
+.top p{margin:4px 0 0;color:var(--muted);max-width:60ch;}
+.top{flex-wrap:wrap;}
+.netpick{margin-left:auto;}
+.netpick .seg span{font-size:14.5px;padding:10px 18px;}
+.node.ext .dot{stroke-dasharray:4 3;}
+.sw.x{width:14px;height:14px;border:3px dashed var(--ink);border-radius:50%;}
+.datanote{flex-basis:100%;margin:0;font-size:12.5px;}
+
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 410px;background:var(--panel);border:1.5px solid var(--ink);border-radius:12px;overflow:hidden;}
+.mapcol{background:var(--map);position:sticky;top:0;align-self:start;min-width:0;}
+.panel{border-left:1.5px solid var(--ink);min-width:0;}
+
+/* toolbar */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 16px;border-bottom:1px solid var(--line);}
+.seg{display:inline-flex;border:1.5px solid var(--ink);border-radius:9px;overflow:hidden;background:var(--panel);}
+.seg label{position:relative;display:block;cursor:pointer;}
+.seg input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;}
+.seg span{display:block;padding:8px 13px;font-size:13.5px;font-weight:600;white-space:nowrap;}
+.seg label + label span{border-left:1.5px solid var(--ink);}
+.seg input:checked + span{background:var(--ink);color:var(--panel);}
+.seg input:focus-visible + span{outline:3px solid var(--focus);outline-offset:-3px;}
+.spacer{flex:1;}
+.check{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;color:var(--muted);cursor:pointer;}
+.check input{width:16px;height:16px;accent-color:var(--route);margin:0;}
+.btn{border:1.5px solid var(--ink);background:var(--panel);border-radius:9px;padding:8px 14px;font-weight:600;font-size:13.5px;cursor:pointer;}
+.btn:hover:not(:disabled){background:var(--ink);color:var(--panel);}
+.btn:disabled{opacity:.45;cursor:default;}
+.btn.primary{background:var(--route);border-color:var(--route);color:var(--on-route);}
+.btn.primary:hover:not(:disabled){filter:brightness(1.08);background:var(--route);color:var(--on-route);}
+.hint{margin:0;padding:10px 16px 0;color:var(--muted);font-size:13.5px;min-height:34px;}
+
+/* map */
+.mapwrap{position:relative;}
+.mapscroll{overflow-x:auto;}
+svg#map{display:block;width:100%;height:auto;touch-action:manipulation;}
+.base{fill:none;stroke:var(--line-strong);stroke-width:4;stroke-linecap:round;}
+.hit{fill:none;stroke:transparent;stroke-width:24;cursor:pointer;}
+.link:hover .base{stroke:var(--ink);}
+.link:focus-visible{outline:none;}
+.link:focus-visible .base{stroke:var(--focus);stroke-width:6;}
+.link.down .base{stroke:var(--fail);stroke-dasharray:3 9;stroke-width:4;}
+.link .xmark{display:none;stroke:var(--fail);stroke-width:3;stroke-linecap:round;}
+.link.down .xmark{display:block;}
+.lbl{opacity:0;pointer-events:none;}
+.show-all .lbl,.link:hover .lbl,.link:focus-visible .lbl{opacity:1;}
+.pill rect{fill:var(--panel);stroke:var(--line-strong);stroke-width:1;}
+.pill text{font:500 11px var(--font-mono);fill:var(--ink);text-anchor:middle;dominant-baseline:central;}
+.pill.hot rect{fill:var(--route);stroke:var(--route);}
+.pill.hot text{fill:var(--on-route);}
+.route-casing{fill:none;stroke:var(--map);stroke-width:15;stroke-linecap:round;stroke-linejoin:round;}
+.route-line{fill:none;stroke:var(--route);stroke-width:8;stroke-linecap:round;stroke-linejoin:round;}
+.preview{fill:none;stroke:var(--alt);stroke-width:5;stroke-linecap:round;stroke-dasharray:2 9;}
+.packet{fill:var(--panel);stroke:var(--route);stroke-width:4;}
+.node{cursor:pointer;}
+.node:focus-visible{outline:none;}
+.node .ring{fill:none;stroke:var(--focus);stroke-width:3;opacity:0;}
+.node:focus-visible .ring{opacity:1;}
+.node .dot{fill:var(--panel);stroke:var(--ink);stroke-width:3.5;}
+.node:hover .dot{stroke-width:5;}
+.node.onroute .dot{stroke:var(--route);stroke-width:5;}
+.node.src .dot{fill:var(--src);stroke:var(--src);}
+.node.dst .dot{fill:var(--route);stroke:var(--route);}
+.node.down .dot{fill:var(--fail-tint);stroke:var(--fail);}
+.node .nx{display:none;stroke:var(--fail);stroke-width:2.5;stroke-linecap:round;}
+.node.down .nx{display:block;}
+.node .nm{font:600 14px var(--font-body);fill:var(--ink);text-anchor:middle;paint-order:stroke;stroke:var(--map);stroke-width:4;stroke-linejoin:round;}
+.node.down .nm{fill:var(--fail);text-decoration:line-through;}
+.node .tag rect{fill:var(--ink);}
+.node.src .tag rect{fill:var(--src);}
+.node.dst .tag rect{fill:var(--route);}
+.node .tag text{font:600 11px var(--font-body);text-anchor:middle;dominant-baseline:central;fill:var(--panel);}
+.node.src .tag text{fill:var(--on-src);}
+.node.dst .tag text{fill:var(--on-route);}
+.node:not(.src):not(.dst) .tag{display:none;}
+
+.tip{position:absolute;z-index:5;pointer-events:none;background:var(--ink);color:var(--panel);border-radius:8px;padding:8px 11px;font-size:12.5px;line-height:1.4;max-width:240px;box-shadow:0 4px 14px rgba(0,0,0,.25);}
+.tip b{font-weight:600;}
+.tip .sub{opacity:.75;}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;padding:12px 16px 16px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);}
+.legend span{display:inline-flex;align-items:center;gap:8px;}
+.sw{display:inline-block;width:26px;height:0;border-top:4px solid var(--line-strong);border-radius:3px;}
+.sw.r{border-top:7px solid var(--route);}
+.sw.d{border-top:4px dotted var(--fail);}
+.sw.p{border-top:4px dotted var(--alt);}
+
+/* panel */
+.sec{padding:18px 20px;border-bottom:1px solid var(--line);}
+.sec:last-child{border-bottom:0;}
+.sec h2{font-family:var(--font-display);font-weight:600;font-size:17px;margin:0 0 12px;letter-spacing:-.01em;}
+.endpoints{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;}
+.field label{display:block;font-size:13px;font-weight:600;margin-bottom:5px;color:var(--muted);}
+select{width:100%;padding:9px 10px;border:1.5px solid var(--ink);border-radius:9px;background:var(--panel);}
+.swap{width:40px;height:40px;padding:0;display:grid;place-items:center;}
+.metric{margin-top:16px;}
+.metric .seg{display:flex;width:100%;}
+.metric .seg label{flex:1;}
+.metric .seg span{text-align:center;padding:8px 6px;white-space:normal;line-height:1.25;font-size:13px;}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+.stat{border-left:4px solid var(--route);padding:2px 0 2px 10px;}
+.stat .v{font-family:var(--font-display);font-weight:800;font-size:30px;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+.stat .u{font-size:13px;color:var(--muted);margin-top:4px;}
+.note{margin:0 0 14px;padding:10px 12px;border-radius:9px;background:var(--sel);font-size:13.5px;}
+.actions{display:flex;flex-wrap:wrap;gap:8px;}
+.status{margin:10px 0 0;font-size:13.5px;color:var(--muted);min-height:20px;}
+
+.problem{padding:12px 14px;border-radius:9px;background:var(--fail-tint);border:1.5px solid var(--fail);}
+.problem p{margin:0 0 10px;}
+.problem p:last-child{margin:0;}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px;}
+caption{text-align:left;font-family:var(--font-display);font-weight:600;font-size:17px;margin-bottom:10px;}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:12.5px;padding:0 6px 6px 0;border-bottom:1.5px solid var(--ink);}
+td{padding:8px 6px 8px 0;border-bottom:1px solid var(--line);vertical-align:top;}
+th.n,td.n{text-align:right;padding-right:0;padding-left:6px;font-variant-numeric:tabular-nums;}
+td.hop{width:32px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.ip{display:block;font-family:var(--font-mono);font-size:12px;color:var(--muted);}
+td.n{font-family:var(--font-mono);font-size:13px;}
+.gb{display:block;color:var(--muted);font-size:11.5px;}
+
+.alts{display:grid;gap:8px;}
+.alt{display:block;width:100%;text-align:left;border:1.5px solid var(--line-strong);background:var(--panel);border-radius:10px;padding:10px 12px;cursor:pointer;position:relative;}
+.alt:hover{border-color:var(--ink);}
+.alt[aria-pressed="true"]{border-color:var(--route);background:var(--sel);box-shadow:inset 4px 0 0 var(--route);}
+.alt-head{display:flex;align-items:center;gap:8px;font-weight:600;}
+.badge{font-size:12px;font-weight:600;border-radius:99px;padding:1px 9px;background:var(--route);color:var(--on-route);}
+.delta{margin-left:auto;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);font-weight:500;}
+.alt-via{margin-top:2px;color:var(--muted);font-size:13.5px;}
+.alt-stats{display:flex;gap:16px;margin-top:6px;font-family:var(--font-mono);font-size:12.5px;}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+
+@media (max-width:1020px){
+  .layout{grid-template-columns:1fr;}
+  .mapcol{position:static;}
+  .panel{border-left:0;border-top:1.5px solid var(--ink);}
+}
+@media (max-width:720px){
+  .app{padding:0 12px 28px;}
+  svg#map{min-width:760px;}
+  .hint{padding-top:12px;}
+  .seg span{padding:8px 10px;font-size:13px;}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important;}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <svg class="logo" width="64" height="40" viewBox="0 0 64 40" aria-hidden="true">
+      <path d="M8 30 L26 30 Q40 30 40 18 L40 12 L56 12" fill="none" stroke="var(--route)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="8" cy="30" r="6.5" fill="var(--panel)" stroke="var(--ink)" stroke-width="3.5"/>
+      <circle cx="56" cy="12" r="6.5" fill="var(--panel)" stroke="var(--ink)" stroke-width="3.5"/>
+    </svg>
+    <div>
+      <h1>Route Finder</h1>
+      <p>Choose two routers, decide what matters most, and see the path traffic would take. Cut a link or take a router offline to watch the route change.</p>
+    </div>
+    <div class="netpick">
+      <div class="seg" role="radiogroup" aria-label="Choose a network" id="netSeg">
+        <label><input type="radio" name="net" value="global" checked><span>Global backbone</span></label>
+        <label><input type="radio" name="net" value="pakistan"><span>Pakistan</span></label>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <section class="mapcol" aria-label="Network map">
+      <div class="toolbar">
+        <div class="seg" role="radiogroup" aria-label="Click action" id="modeSeg">
+          <label><input type="radio" name="mode" value="endpoints" checked><span>Pick endpoints</span></label>
+          <label><input type="radio" name="mode" value="links"><span>Cut links</span></label>
+          <label><input type="radio" name="mode" value="nodes"><span>Take routers down</span></label>
+        </div>
+        <span class="spacer"></span>
+        <label class="check"><input type="checkbox" id="showAll"> Show link latency</label>
+        <button class="btn" id="restore" type="button" disabled>Restore network</button>
+      </div>
+      <p class="hint" id="hint"></p>
+      <div class="mapwrap" id="mapwrap">
+        <div class="mapscroll">
+          <svg id="map" viewBox="0 0 1000 620" role="group" aria-label="Network topology"></svg>
+        </div>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+      <div class="legend">
+        <span><i class="sw r"></i>Selected route</span>
+        <span><i class="sw"></i>Working link</span>
+        <span><i class="sw d"></i>Link or router down</span>
+        <span><i class="sw p"></i>Route being previewed</span>
+        <span id="legendExt" hidden><i class="sw x"></i>International gateway</span>
+        <span class="datanote" id="dataNote"></span>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Route details">
+      <div class="sec">
+        <div class="endpoints">
+          <div class="field"><label for="selSrc">From</label><select id="selSrc"></select></div>
+          <button class="btn swap" id="swap" type="button" aria-label="Swap From and To">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg>
+          </button>
+          <div class="field"><label for="selDst">To</label><select id="selDst"></select></div>
+        </div>
+        <div class="metric">
+          <div class="seg" role="radiogroup" aria-label="Optimize route for" id="metricSeg">
+            <label><input type="radio" name="metric" value="latency" checked><span>Lowest latency</span></label>
+            <label><input type="radio" name="metric" value="hops"><span>Fewest hops</span></label>
+            <label><input type="radio" name="metric" value="bandwidth"><span>Most bandwidth</span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec" id="secProblem" hidden>
+        <div class="problem">
+          <p id="problemText"></p>
+          <button class="btn" id="problemFix" type="button" hidden>Restore network</button>
+        </div>
+      </div>
+
+      <div class="sec" id="secResult" hidden>
+        <div class="stats">
+          <div class="stat"><div class="v" id="stLat">0</div><div class="u">ms one-way</div></div>
+          <div class="stat"><div class="v" id="stHops">0</div><div class="u" id="stHopsU">hops</div></div>
+          <div class="stat"><div class="v" id="stBw">0</div><div class="u">Gbps bottleneck</div></div>
+        </div>
+        <p class="note" id="note" hidden></p>
+        <div class="actions">
+          <button class="btn primary" id="send" type="button">Send test packet</button>
+          <button class="btn" id="copy" type="button">Copy traceroute</button>
+        </div>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="sec" id="secHops" hidden>
+        <table>
+          <caption>Hop by hop</caption>
+          <thead><tr><th scope="col">Hop</th><th scope="col">Router</th><th scope="col" class="n">Link</th><th scope="col" class="n">Total</th></tr></thead>
+          <tbody id="hopBody"></tbody>
+        </table>
+      </div>
+
+      <div class="sec" id="secAlts" hidden>
+        <h2>Routes compared</h2>
+        <div class="alts" id="alts"></div>
+        <p class="status" id="altCount"></p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var NS='http://www.w3.org/2000/svg';
+var $=function(s){return document.querySelector(s);};
+function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k in attrs){e.setAttribute(k,attrs[k]);}if(parent)parent.appendChild(e);return e;}
+var reduceMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- network data ---------- */
+var NETWORKS={
+  global:{
+    aria:'Global backbone with 15 routers and 26 links',
+    note:'Sample data. Latencies and capacities are illustrative, not live measurements.',
+    ip:function(i){return '10.'+(i+1)+'.0.1';},
+    src:'lon',dst:'syd',
+    nodes:[
+      ['sjc','San Jose',70,250],['chi','Chicago',190,190],['nyc','New York',330,250],['gru','São Paulo',300,480],
+      ['lon','London',450,160],['ams','Amsterdam',560,115],['par','Paris',470,290],['fra','Frankfurt',640,200],
+      ['jnb','Johannesburg',580,540],['dxb','Dubai',730,370],['bom','Mumbai',790,470],['sin','Singapore',870,555],
+      ['hkg','Hong Kong',880,330],['tyo','Tokyo',940,200],['syd','Sydney',955,440]
+    ],
+    links:[
+      ['sjc','chi',38,100],['sjc','nyc',65,100],['sjc','tyo',100,40,[510,-110]],
+      ['chi','nyc',18,100],['nyc','lon',70,100],['nyc','par',76,40],['nyc','gru',115,40],
+      ['gru','lon',185,20],['gru','jnb',175,10],
+      ['lon','ams',8,100],['lon','par',6,100],['lon','fra',12,100],['ams','fra',7,100],['par','fra',9,100],
+      ['par','jnb',140,20],['fra','dxb',105,40],['jnb','dxb',130,20],['jnb','bom',120,20],
+      ['dxb','bom',28,100],['dxb','hkg',82,40],['bom','sin',55,40],['bom','hkg',85,20],
+      ['sin','hkg',36,40],['sin','syd',90,40],['hkg','tyo',48,100],['syd','tyo',105,20]
+    ]
+  },
+  pakistan:{
+    aria:'Pakistan national backbone with 14 cities and 3 international gateways',
+    note:'Illustrative model. City links, latencies and capacities are estimates based on typical fiber distances, not data from any operator.',
+    ip:function(i){return '172.16.'+(i+1)+'.1';},
+    src:'khi',dst:'isb',
+    nodes:[
+      ['khi','Karachi',300,575],['hyd','Hyderabad',410,570],['suk','Sukkur',440,480],['qta','Quetta',230,400],
+      ['gwd','Gwadar',140,520],['mux','Multan',520,420],['bhw','Bahawalpur',610,490],['fsd','Faisalabad',560,320],
+      ['lhe','Lahore',680,330],['skt','Sialkot',730,250],['isb','Islamabad',560,210],['pew','Peshawar',430,190],
+      ['glt','Gilgit',680,110],['khj','Khunjerab Pass',780,60],
+      ['ksg','Kashgar, China',930,45,1],['fjr','Fujairah, UAE',60,560,1],['mrs','Marseille, France',60,330,1]
+    ],
+    links:[
+      ['khi','hyd',2,400],['hyd','suk',3,200],['suk','mux',4,200],['hyd','bhw',5,200],['bhw','mux',1,200],
+      ['khi','qta',6,100],['qta','suk',5,100],['qta','mux',6,100],['khi','gwd',6,100],['gwd','qta',6,40],
+      ['mux','fsd',3,200],['mux','lhe',3,200],['bhw','lhe',4,100],['fsd','lhe',2,200],['fsd','isb',3,200],
+      ['lhe','isb',4,400],['lhe','skt',2,100],['skt','isb',3,100],['isb','pew',2,200],['isb','glt',6,40],
+      ['glt','khj',5,40],['khj','ksg',3,40],
+      ['khi','fjr',12,400],['gwd','fjr',9,200],['khi','mrs',62,200,[130,500]],['fjr','mrs',55,400]
+    ]
+  }
+};
+var NODES=[],LINKS=[],nodeById={};
+function dFor(l,from){
+  var A=nodeById[l.a],B=nodeById[l.b];
+  var p=from===l.a?A:B,q=from===l.a?B:A;
+  return 'M'+p.x+' '+p.y+'Q'+l.cx+' '+l.cy+' '+q.x+' '+q.y;
+}
+function name(id){return nodeById[id].name;}
+
+/* ---------- state ---------- */
+var state={net:'global',src:'lon',dst:'syd',metric:'latency',mode:'endpoints',next:'src',
+  downL:new Set(),downN:new Set(),sel:0,preview:-1,labels:false,result:null};
+
+/* ---------- routing ---------- */
+function mk(ns,ls){
+  var ms=0,bw=Infinity;
+  ls.forEach(function(l){ms+=l.ms;if(l.gbps<bw)bw=l.gbps;});
+  return {nodes:ns,links:ls,ms:ms,hops:ls.length,bw:bw};
+}
+function enumerate(src,dst,downL,downN){
+  var adj={};NODES.forEach(function(n){adj[n.id]=[];});
+  LINKS.forEach(function(l){
+    if(downL.has(l.id)||downN.has(l.a)||downN.has(l.b))return;
+    adj[l.a].push({to:l.b,l:l});adj[l.b].push({to:l.a,l:l});
+  });
+  var out=[],seen={},np=[src],lp=[],guard=0;seen[src]=true;
+  (function dfs(u){
+    if(guard>1500000)return;
+    if(u===dst){out.push(mk(np.slice(),lp.slice()));return;}
+    if(lp.length>=10)return;
+    adj[u].forEach(function(e){
+      if(seen[e.to])return;
+      guard++;seen[e.to]=true;np.push(e.to);lp.push(e.l);
+      dfs(e.to);
+      lp.pop();np.pop();seen[e.to]=false;
+    });
+  })(src);
+  return out;
+}
+var KEYS={
+  latency:function(p){return [p.ms,p.hops];},
+  hops:function(p){return [p.hops,p.ms];},
+  bandwidth:function(p){return [-p.bw,p.ms];}
+};
+function sortPaths(arr,m){
+  var k=KEYS[m];
+  return arr.sort(function(a,b){var x=k(a),y=k(b);return (x[0]-y[0])||(x[1]-y[1]);});
+}
+function overlap(a,b){
+  var set={};a.links.forEach(function(l){set[l.id]=1;});
+  var n=0;b.links.forEach(function(l){if(set[l.id])n++;});
+  return n/Math.max(a.links.length,b.links.length);
+}
+function compute(){
+  var s=state.src,d=state.dst;
+  if(s===d)return {error:'same'};
+  if(state.downN.has(s))return {error:'down',who:s};
+  if(state.downN.has(d))return {error:'down',who:d};
+  var all=sortPaths(enumerate(s,d,state.downL,state.downN),state.metric);
+  if(!all.length)return {error:'none'};
+  var chosen=[all[0]];
+  for(var i=1;i<all.length&&i<4000&&chosen.length<4;i++){
+    var ok=true;
+    for(var j=0;j<chosen.length;j++){if(overlap(chosen[j],all[i])>=0.7){ok=false;break;}}
+    if(ok)chosen.push(all[i]);
+  }
+  var base=null;
+  if(state.downL.size||state.downN.size){
+    var h=sortPaths(enumerate(s,d,new Set(),new Set()),state.metric);
+    base=h[0]||null;
+  }
+  return {paths:chosen,count:all.length,base:base};
+}
+
+/* ---------- map build ---------- */
+var svg=$('#map');
+var gLinks=el('g',{},svg),gPrev=el('g',{},svg),gRoute=el('g',{},svg),gPacket=el('g',{},svg),gNodes=el('g',{},svg);
+var linkEls={},nodeEls={};
+var tip=$('#tip'),mapwrap=$('#mapwrap');
+
+function pill(parent,x,y,text,cls){
+  var w=text.length*6.6+14;
+  var g=el('g',{'class':'pill '+(cls||'')},parent);
+  el('rect',{x:x-w/2,y:y-9.5,width:w,height:19,rx:9.5},g);
+  var t=el('text',{x:x,y:y},g);t.textContent=text;
+  return g;
+}
+function showTip(html,cx,cy){
+  tip.innerHTML=html;tip.hidden=false;
+  var r=mapwrap.getBoundingClientRect();
+  var x=cx-r.left+14,y=cy-r.top+14;
+  var w=tip.offsetWidth,h=tip.offsetHeight;
+  if(x+w>r.width-6)x=cx-r.left-w-14;
+  if(y+h>r.height-6)y=cy-r.top-h-14;
+  tip.style.left=Math.max(6,x)+'px';tip.style.top=Math.max(6,y)+'px';
+}
+function hideTip(){tip.hidden=true;}
+function tipAtElement(target,html){
+  var r=target.getBoundingClientRect();
+  showTip(html,r.left+r.width/2,r.top+r.height/2);
+}
+function linkTip(l){
+  var act=state.mode==='links'?(state.downL.has(l.id)?'Click to restore this link.':'Click to cut this link.'):'Switch to “Cut links” to test an outage.';
+  return '<b>'+name(l.a)+' to '+name(l.b)+'</b><br>'+l.ms+' ms, '+l.gbps+' Gbps'+(state.downL.has(l.id)?'<br>Link is down.':'')+'<br><span class="sub">'+act+'</span>';
+}
+function nodeTip(n){
+  var act=state.mode==='endpoints'?'Click to set '+(state.next==='src'?'From':'To')+'.':
+          state.mode==='nodes'?(state.downN.has(n.id)?'Click to bring back online.':'Click to take offline.'):'Switch to “Take routers down” to test an outage.';
+  return '<b>'+n.name+'</b><br><span class="sub">'+(n.ext?'International gateway<br>':'')+n.ip+(state.downN.has(n.id)?'<br>Router is down.':'')+'</span><br><span class="sub">'+act+'</span>';
+}
+
+function buildMap(){
+[gLinks,gPrev,gRoute,gPacket,gNodes].forEach(function(g){g.innerHTML='';});
+linkEls={};nodeEls={};
+LINKS.forEach(function(l){
+  var g=el('g',{'class':'link',tabindex:'0',role:'button','data-id':l.id},gLinks);
+  var d=dFor(l,l.a);
+  el('path',{'class':'hit',d:d},g);
+  el('path',{'class':'base',d:d},g);
+  var x=el('g',{'class':'xmark'},g);
+  el('line',{x1:l.mx-6,y1:l.my-6,x2:l.mx+6,y2:l.my+6},x);
+  el('line',{x1:l.mx-6,y1:l.my+6,x2:l.mx+6,y2:l.my-6},x);
+  var lb=el('g',{'class':'lbl'},g);
+  pill(lb,l.mx,l.my-(l.cy<l.my?0:0),l.ms+' ms');
+  g.addEventListener('click',function(){onLink(l);});
+  g.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();onLink(l);}});
+  g.addEventListener('pointerenter',function(e){showTip(linkTip(l),e.clientX,e.clientY);});
+  g.addEventListener('pointermove',function(e){showTip(linkTip(l),e.clientX,e.clientY);});
+  g.addEventListener('pointerleave',hideTip);
+  g.addEventListener('focus',function(){tipAtElement(g,linkTip(l));});
+  g.addEventListener('blur',hideTip);
+  linkEls[l.id]=g;
+});
+NODES.forEach(function(n){
+  var g=el('g',{'class':'node'+(n.ext?' ext':''),tabindex:'0',role:'button',transform:'translate('+n.x+' '+n.y+')'},gNodes);
+  el('circle',{'class':'ring',r:17},g);
+  el('circle',{'class':'dot',r:9},g);
+  el('path',{'class':'nx',d:'M-4 -4L4 4M4 -4L-4 4'},g);
+  var t=el('text',{'class':'nm',y:29},g);t.textContent=n.name;
+  var tg=el('g',{'class':'tag'},g);
+  el('rect',{x:-21,y:-37,width:42,height:18,rx:9},tg);
+  el('text',{x:0,y:-28},tg);
+  g.addEventListener('click',function(){onNode(n);});
+  g.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();onNode(n);}});
+  g.addEventListener('pointerenter',function(e){showTip(nodeTip(n),e.clientX,e.clientY);});
+  g.addEventListener('pointermove',function(e){showTip(nodeTip(n),e.clientX,e.clientY);});
+  g.addEventListener('pointerleave',hideTip);
+  g.addEventListener('focus',function(){tipAtElement(g,nodeTip(n));});
+  g.addEventListener('blur',hideTip);
+  nodeEls[n.id]=g;
+});
+}
+
+function loadNetwork(key){
+  var cfg=NETWORKS[key];
+  state.net=key;
+  NODES=cfg.nodes.map(function(n,i){return {id:n[0],name:n[1],x:n[2],y:n[3],ext:!!n[4],ip:cfg.ip(i)};});
+  nodeById={};NODES.forEach(function(n){nodeById[n.id]=n;});
+  LINKS=cfg.links.map(function(r){
+    var A=nodeById[r[0]],B=nodeById[r[1]];
+    var cx=r[4]?r[4][0]:(A.x+B.x)/2,cy=r[4]?r[4][1]:(A.y+B.y)/2;
+    return {id:r[0]+'-'+r[1],a:r[0],b:r[1],ms:r[2],gbps:r[3],cx:cx,cy:cy,mx:.25*A.x+.5*cx+.25*B.x,my:.25*A.y+.5*cy+.25*B.y};
+  });
+  state.src=cfg.src;state.dst=cfg.dst;state.next='src';
+  state.downL=new Set();state.downN=new Set();state.sel=0;state.preview=-1;
+  svg.setAttribute('aria-label',cfg.aria);
+  selSrc.innerHTML='';selDst.innerHTML='';
+  NODES.forEach(function(n){[selSrc,selDst].forEach(function(s){var o=document.createElement('option');o.value=n.id;o.textContent=n.name;s.appendChild(o);});});
+  $('#dataNote').textContent=cfg.note;
+  $('#legendExt').hidden=!NODES.some(function(n){return n.ext;});
+  hideTip();
+  buildMap();
+  render();
+}
+
+/* ---------- interactions ---------- */
+function onNode(n){
+  if(state.mode==='endpoints'){
+    if(state.next==='src'){
+      if(n.id===state.dst)state.dst=state.src;
+      state.src=n.id;state.next='dst';
+    }else{
+      if(n.id===state.src)state.src=state.dst;
+      state.dst=n.id;state.next='src';
+    }
+    resetSel();
+  }else if(state.mode==='nodes'){
+    if(state.downN.has(n.id))state.downN.delete(n.id);else state.downN.add(n.id);
+    resetSel();
+  }
+  render();
+  if(!tip.hidden)tipAtElement(nodeEls[n.id],nodeTip(n));
+}
+function onLink(l){
+  if(state.mode==='links'){
+    if(state.downL.has(l.id))state.downL.delete(l.id);else state.downL.add(l.id);
+    resetSel();render();
+    if(!tip.hidden)tipAtElement(linkEls[l.id],linkTip(l));
+  }else{
+    showTip('<b>Links are read-only here.</b><br><span class="sub">Switch to “Cut links” to test an outage.</span>',mapwrap.getBoundingClientRect().left+l.mx*mapwrap.getBoundingClientRect().width/1000,mapwrap.getBoundingClientRect().top+l.my*mapwrap.getBoundingClientRect().width/1000);
+  }
+}
+function resetSel(){state.sel=0;state.preview=-1;}
+
+var HINTS={
+  endpoints:'Click a router to set From, then another to set To.',
+  links:'Click a link to cut it. Click it again to restore it.',
+  nodes:'Click a router to take it offline. Click it again to bring it back.'
+};
+document.querySelectorAll('input[name=mode]').forEach(function(r){
+  r.addEventListener('change',function(){state.mode=r.value;render();});
+});
+document.querySelectorAll('input[name=metric]').forEach(function(r){
+  r.addEventListener('change',function(){state.metric=r.value;resetSel();render();});
+});
+$('#showAll').addEventListener('change',function(e){state.labels=e.target.checked;svg.classList.toggle('show-all',state.labels);});
+function restoreAll(){state.downL.clear();state.downN.clear();resetSel();render();}
+$('#restore').addEventListener('click',restoreAll);
+$('#problemFix').addEventListener('click',restoreAll);
+
+var selSrc=$('#selSrc'),selDst=$('#selDst');
+selSrc.addEventListener('change',function(){state.src=selSrc.value;resetSel();render();});
+selDst.addEventListener('change',function(){state.dst=selDst.value;resetSel();render();});
+$('#swap').addEventListener('click',function(){var t=state.src;state.src=state.dst;state.dst=t;resetSel();render();});
+
+/* ---------- rendering ---------- */
+function fmtVia(p){
+  var mid=p.nodes.slice(1,-1).map(name);
+  return mid.length?'via '+mid.join(', '):'Direct link';
+}
+function stopPacket(){anim++;gPacket.innerHTML='';$('#send').disabled=false;}
+var anim=0;
+
+function drawRoute(){
+  gRoute.innerHTML='';
+  var r=state.result;
+  if(!r||!r.paths)return;
+  var p=r.paths[state.sel];
+  p.links.forEach(function(l,i){
+    var d=dFor(l,p.nodes[i]);
+    el('path',{'class':'route-casing',d:d},gRoute);
+  });
+  p.links.forEach(function(l,i){
+    var d=dFor(l,p.nodes[i]);
+    el('path',{'class':'route-line',d:d},gRoute);
+  });
+  p.links.forEach(function(l){pill(gRoute,l.mx,l.my,l.ms+' ms','hot');});
+}
+function drawPreview(){
+  gPrev.innerHTML='';
+  var r=state.result;
+  if(!r||!r.paths||state.preview<0||state.preview===state.sel)return;
+  var p=r.paths[state.preview];
+  p.links.forEach(function(l,i){el('path',{'class':'preview',d:dFor(l,p.nodes[i])},gPrev);});
+}
+function applyMap(){
+  var r=state.result,onRoute={};
+  if(r&&r.paths){r.paths[state.sel].nodes.forEach(function(id){onRoute[id]=1;});}
+  LINKS.forEach(function(l){
+    var g=linkEls[l.id];
+    var down=state.downL.has(l.id)||state.downN.has(l.a)||state.downN.has(l.b);
+    g.classList.toggle('down',down);
+    g.setAttribute('aria-label',name(l.a)+' to '+name(l.b)+', '+l.ms+' milliseconds, '+l.gbps+' gigabits per second, '+(down?'down':'up')+(state.mode==='links'?'. Press Enter to '+(state.downL.has(l.id)?'restore':'cut')+'.':''));
+    g.setAttribute('aria-pressed',state.downL.has(l.id)?'true':'false');
+  });
+  NODES.forEach(function(n){
+    var g=nodeEls[n.id];
+    g.classList.toggle('src',n.id===state.src);
+    g.classList.toggle('dst',n.id===state.dst);
+    g.classList.toggle('down',state.downN.has(n.id));
+    g.classList.toggle('onroute',!!onRoute[n.id]);
+    var tg=g.querySelector('.tag text');
+    tg.textContent=n.id===state.src?'From':(n.id===state.dst?'To':'');
+    g.setAttribute('aria-label',n.name+', '+n.ip+(n.id===state.src?', From':'')+(n.id===state.dst?', To':'')+(state.downN.has(n.id)?', down':''));
+  });
+}
+function metricNote(r,p){
+  if(!(state.downL.size||state.downN.size))return '';
+  var b=r.base;if(!b)return '';
+  var same=b.nodes.join()===p.nodes.join();
+  if(state.sel===0&&same)return 'Your outages don’t affect this route.';
+  if(state.metric==='latency'){var dd=p.ms-b.ms;return dd>0?'Outages add '+dd+' ms compared with a healthy network ('+b.ms+' ms).':'Outages don’t change the latency of this route.';}
+  if(state.metric==='hops'){var dh=p.hops-b.hops;return dh>0?'Outages add '+dh+(dh===1?' hop':' hops')+' compared with a healthy network ('+b.hops+').':'Outages don’t change the hop count.';}
+  return p.bw<b.bw?'Outages cut the bottleneck from '+b.bw+' to '+p.bw+' Gbps.':'Outages don’t reduce the bottleneck bandwidth.';
+}
+function renderPanel(){
+  var r=state.result;
+  selSrc.value=state.src;selDst.value=state.dst;
+  $('#hint').textContent=HINTS[state.mode];
+  var nFail=state.downL.size+state.downN.size;
+  var rb=$('#restore');rb.disabled=nFail===0;
+  rb.textContent=nFail?'Restore network ('+nFail+')':'Restore network';
+
+  var sp=$('#secProblem'),sr=$('#secResult'),sh=$('#secHops'),sa=$('#secAlts');
+  var fix=$('#problemFix');
+  if(r.error){
+    sp.hidden=false;sr.hidden=true;sh.hidden=true;sa.hidden=true;
+    fix.hidden=true;
+    if(r.error==='same'){$('#problemText').textContent='From and To are the same router. Choose two different routers.';}
+    else if(r.error==='down'){$('#problemText').textContent=name(r.who)+' is offline, so no traffic can start or end there. Bring it back online or choose another router.';fix.hidden=false;}
+    else{$('#problemText').textContent='There is no working path from '+name(state.src)+' to '+name(state.dst)+'. '+(nFail===1?'1 outage is':nFail+' outages are')+' cutting them off. Restore a link or router to reconnect them.';fix.hidden=false;}
+    return;
+  }
+  sp.hidden=true;sr.hidden=false;sh.hidden=false;sa.hidden=false;
+  var p=r.paths[state.sel];
+  $('#stLat').textContent=p.ms;
+  $('#stHops').textContent=p.hops;
+  $('#stHopsU').textContent=p.hops===1?'hop':'hops';
+  $('#stBw').textContent=p.bw;
+  var note=metricNote(r,p),ne=$('#note');
+  ne.hidden=!note;ne.textContent=note;
+
+  var rows='',cum=0;
+  p.nodes.forEach(function(id,i){
+    var n=nodeById[id],l=i>0?p.links[i-1]:null;
+    if(l)cum+=l.ms;
+    rows+='<tr><td class="hop">'+i+'</td><td>'+n.name+'<span class="ip">'+n.ip+'</span></td>'+
+      '<td class="n">'+(l?l.ms+' ms<span class="gb">'+l.gbps+' Gbps</span>':'–')+'</td>'+
+      '<td class="n">'+cum+' ms</td></tr>';
+  });
+  $('#hopBody').innerHTML=rows;
+
+  var best=r.paths[0],html='';
+  r.paths.forEach(function(q,i){
+    var delta=q.ms-best.ms;
+    html+='<button type="button" class="alt" data-i="'+i+'" aria-pressed="'+(i===state.sel)+'">'+
+      '<span class="alt-head">Route '+(i+1)+(i===0?'<span class="badge">Best</span>':'')+
+      '<span class="delta">'+(i===0?'':'+'+delta+' ms')+'</span></span>'+
+      '<span class="alt-via" style="display:block">'+fmtVia(q)+'</span>'+
+      '<span class="alt-stats"><span>'+q.ms+' ms</span><span>'+q.hops+(q.hops===1?' hop':' hops')+'</span><span>'+q.bw+' Gbps</span></span></button>';
+  });
+  $('#alts').innerHTML=html;
+  $('#altCount').textContent='Checked '+r.count+(r.count===1?' possible path.':' possible paths.')+' Showing up to 4 that differ from each other.';
+}
+function render(){
+  stopPacket();
+  state.result=compute();
+  if(state.result.paths&&state.sel>=state.result.paths.length)state.sel=0;
+  $('#status').textContent='';
+  applyMap();drawRoute();drawPreview();renderPanel();
+}
+
+var altsEl=$('#alts');
+altsEl.addEventListener('click',function(e){
+  var b=e.target.closest('.alt');if(!b)return;
+  state.sel=+b.getAttribute('data-i');state.preview=-1;
+  stopPacket();$('#status').textContent='';
+  applyMap();drawRoute();drawPreview();renderPanel();
+});
+altsEl.addEventListener('pointerover',function(e){
+  var b=e.target.closest('.alt');if(!b)return;
+  var i=+b.getAttribute('data-i');
+  if(state.preview!==i){state.preview=i;drawPreview();}
+});
+altsEl.addEventListener('pointerleave',function(){state.preview=-1;drawPreview();});
+altsEl.addEventListener('focusin',function(e){var b=e.target.closest('.alt');if(!b)return;state.preview=+b.getAttribute('data-i');drawPreview();});
+altsEl.addEventListener('focusout',function(){state.preview=-1;drawPreview();});
+
+/* ---------- packet + copy ---------- */
+$('#send').addEventListener('click',function(){
+  var r=state.result;if(!r||!r.paths)return;
+  var p=r.paths[state.sel];
+  var msg='Delivered from '+name(state.src)+' to '+name(state.dst)+' in '+p.ms+' ms across '+p.hops+(p.hops===1?' hop.':' hops.');
+  if(reduceMotion){$('#status').textContent=msg;return;}
+  stopPacket();
+  var token=anim;
+  var segs=[].slice.call(gRoute.querySelectorAll('.route-line'));
+  var lens=segs.map(function(s){return s.getTotalLength();});
+  var dur=Math.min(4200,Math.max(1600,p.ms*14));
+  var times=p.links.map(function(l){return l.ms/p.ms*dur;});
+  var dot=el('circle',{'class':'packet',r:7},gPacket);
+  $('#send').disabled=true;$('#status').textContent='Sending…';
+  var t0=null;
+  function frame(ts){
+    if(token!==anim)return;
+    if(t0===null)t0=ts;
+    var elapsed=ts-t0,acc=0,i=0;
+    while(i<segs.length-1&&elapsed>acc+times[i]){acc+=times[i];i++;}
+    var f=Math.max(0,Math.min(1,(elapsed-acc)/times[i]));
+    var pt=segs[i].getPointAtLength(lens[i]*f);
+    dot.setAttribute('cx',pt.x);dot.setAttribute('cy',pt.y);
+    if(elapsed<dur){requestAnimationFrame(frame);}
+    else{gPacket.innerHTML='';$('#send').disabled=false;$('#status').textContent=msg;}
+  }
+  requestAnimationFrame(frame);
+});
+function copyText(t){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    return navigator.clipboard.writeText(t).then(function(){return true;},function(){return fallbackCopy(t);});
+  }
+  return Promise.resolve(fallbackCopy(t));
+}
+function fallbackCopy(t){
+  try{
+    var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();var ok=document.execCommand('copy');ta.remove();return ok;
+  }catch(e){return false;}
+}
+$('#copy').addEventListener('click',function(){
+  var r=state.result;if(!r||!r.paths)return;
+  var p=r.paths[state.sel];
+  var labels={latency:'lowest latency',hops:'fewest hops',bandwidth:'most bandwidth'};
+  var lines=['traceroute from '+name(state.src)+' to '+name(state.dst)+' ('+labels[state.metric]+')'],cum=0;
+  p.nodes.forEach(function(id,i){
+    var n=nodeById[id];if(i>0)cum+=p.links[i-1].ms;
+    lines.push(String(i).padStart(2,' ')+'  '+n.name.padEnd(14,' ')+' '+n.ip.padEnd(10,' ')+' '+String(cum).padStart(4,' ')+' ms');
+  });
+  lines.push('total '+p.ms+' ms, '+p.hops+' hops, '+p.bw+' Gbps bottleneck');
+  copyText(lines.join('\n')).then(function(ok){
+    $('#status').textContent=ok?'Traceroute copied.':'Couldn’t copy. Select the hop table and copy it manually.';
+  });
+});
+
+document.querySelectorAll('input[name=net]').forEach(function(r){
+  r.addEventListener('change',function(){loadNetwork(r.value);});
+});
+loadNetwork('global');
+})();
+</script>
+</body>
+</html>
